@@ -168,3 +168,22 @@
     width: 100%;
   }
 }
+
+
+.recording {
+  background-color: red;
+  color: white;
+}
+
+button {
+  padding: 12px 24px;
+  border-radius: 25px;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.3s ease;
+}
+
+button:hover {
+  opacity: 0.8;
+}

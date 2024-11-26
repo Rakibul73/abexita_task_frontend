@@ -7,10 +7,35 @@ const App = () => {
     const [results, setResults] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
-    const [audioURL, setAudioURL] = useState(null);
     const [isRecording, setIsRecording] = useState(false);
-    const mediaRecorderRef = useRef(null);
-    const chunksRef = useRef([]);
+    const mediaRecorder = useRef(null);
+    const audioChunks = useRef([]);
+
+    const startRecording = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: true,
+            });
+            mediaRecorder.current = new MediaRecorder(stream);
+
+            mediaRecorder.current.ondataavailable = (event) => {
+                audioChunks.current.push(event.data);
+            };
+
+            mediaRecorder.current.onstop = async () => {
+                const audioBlob = new Blob(audioChunks.current, {
+                    type: "audio/wav",
+                });
+                audioChunks.current = [];
+                await sendAudioToAPI(audioBlob);
+            };
+
+            mediaRecorder.current.start();
+            setIsRecording(true);
+        } catch (error) {
+            console.error("Error starting recording:", error);
+        }
+    };
 
     const handleInputChange = (e) => {
         setQuery(e.target.value);
@@ -24,9 +49,14 @@ const App = () => {
 
         try {
             const response = await axios.post(
-                "http://localhost:3000/voice/search",
+                "http://localhost:3001/assistant/search",
                 {
                     query,
+                },
+                {
+                    headers: {
+                        "ngrok-skip-browser-warning": "true",
+                    },
                 }
             );
             setResults(response.data.data || []);
@@ -37,69 +67,35 @@ const App = () => {
         }
     };
 
-    const startRecording = async () => {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                audio: true,
-            });
-            mediaRecorderRef.current = new MediaRecorder(stream);
-            chunksRef.current = [];
-
-            mediaRecorderRef.current.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    chunksRef.current.push(event.data);
-                }
-            };
-
-            mediaRecorderRef.current.onstop = () => {
-                const audioBlob = new Blob(chunksRef.current, {
-                    type: "audio/wav",
-                });
-                const audioUrl = URL.createObjectURL(audioBlob);
-                setAudioURL(audioUrl);
-            };
-
-            mediaRecorderRef.current.start();
-            setIsRecording(true);
-        } catch (error) {
-            setError("Error accessing microphone");
-        }
-    };
-
     const stopRecording = () => {
-        if (mediaRecorderRef.current && isRecording) {
-            mediaRecorderRef.current.stop();
-            setIsRecording(false);
-            mediaRecorderRef.current.stream
+        if (mediaRecorder.current && isRecording) {
+            mediaRecorder.current.stop();
+            mediaRecorder.current.stream
                 .getTracks()
                 .forEach((track) => track.stop());
+            setIsRecording(false);
         }
     };
 
-    const uploadAudio = async () => {
-        if (!audioURL) return;
-
-        setLoading(true);
+    const sendAudioToAPI = async (audioBlob) => {
         try {
-            const response = await fetch(audioURL);
-            const audioBlob = await response.blob();
             const formData = new FormData();
-            formData.append("audio", audioBlob, "recording.wav");
+            formData.append("audio", audioBlob);
 
-            const uploadResponse = await fetch(
-                "http://localhost:3000/voice/upload",
+            const uploadResponse = await axios.post(
+                "http://localhost:3001/assistant/upload",
+                formData,
                 {
-                    method: "POST",
-                    body: formData,
+                    headers: {
+                        "Content-Type": "multipart/form-data",
+                        "ngrok-skip-browser-warning": "true",
+                    },
                 }
             );
 
-            const result = await uploadResponse.json();
-            setResults(result.data || []);
+            setResults(uploadResponse.data.data || []);
         } catch (error) {
-            setError("Error uploading audio");
-        } finally {
-            setLoading(false);
+            console.error("Error sending audio to API:", error);
         }
     };
 
@@ -111,28 +107,10 @@ const App = () => {
                 <div className="audio-recorder">
                     <button
                         onClick={isRecording ? stopRecording : startRecording}
-                        className={`record-button ${
-                            isRecording ? "recording" : ""
-                        }`}
+                        className={isRecording ? "recording" : ""}
                     >
                         {isRecording ? "Stop Recording" : "Start Recording"}
                     </button>
-
-                    {audioURL && (
-                        <div className="audio-playback">
-                            <audio
-                                src={audioURL}
-                                controls
-                                className="audio-player"
-                            />
-                            <button
-                                onClick={uploadAudio}
-                                className="upload-button"
-                            >
-                                Upload Recording
-                            </button>
-                        </div>
-                    )}
                 </div>
 
                 <form className="search-form" onSubmit={handleSearch}>
